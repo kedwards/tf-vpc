@@ -1,27 +1,22 @@
-resource "aws_vpc" "this" {
-  count = var.create_vpc ? 1 : 0
-
-  cidr_block                       = var.cidr
-  enable_dns_hostnames             = var.enable_dns_hostnames
-  enable_dns_support               = var.enable_dns_support
-  assign_generated_ipv6_cidr_block = var.enable_ipv6
-
-  tags = merge(
-    {
-      "Name" = format("%s", var.name)
-    },
-    var.tags
+#
+# locals
+#
+locals {
+  max_subnet_length = max(
+    length(var.private_subnets),
+    length(var.database_subnets)
   )
-}
+  nat_gateway_count = var.single_nat_gateway ? 1 : var.one_nat_gateway_per_az ? length(var.azs) : local.max_subnet_length
 
-resource "aws_internet_gateway" "this" {
-  count  = var.create_vpc && var.create_internet_gateway ? 1 : 0
-  vpc_id = element(aws_vpc.this.*.id, 0)
-
-  tags = merge(
-    {
-      "Name" = format("%s", var.name)
-    },
-    var.tags
+  #
+  # Workaround for interpolation not being able to "short-circuit" the evaluation of the conditional branch that doesn't end up being used
+  # Source: https://github.com/hashicorp/terraform/issues/11566#issuecomment-289417805
+  #
+  # The logical expression would be: nat_gateway_ips = var.reuse_nat_ips ? var.external_nat_ip_ids : aws_eip.nat.*.id
+  # but then when count of aws_eip.nat.*.id is zero, this would throw a resource not found error on aws_eip.nat.*.id.
+  #
+  nat_gateway_ips = split(
+    ",",
+    var.reuse_nat_ips ? join(",", var.external_nat_ip_ids) : join(",", aws_eip.nat.*.id),
   )
 }
